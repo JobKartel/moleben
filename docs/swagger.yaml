@@ -1,0 +1,249 @@
+definitions:
+  entity.BotPayload:
+    properties:
+      next_step:
+        description: Рекомендованное следующее действие
+        type: string
+      repentance:
+        allOf:
+        - $ref: '#/definitions/entity.Repentance'
+        description: Детализация оценки «покаяния»
+      reply:
+        description: Текстовый ответ ассистента для пользователя
+        type: string
+      risk_flag:
+        description: 'Флаг риска: при true tally не меняется'
+        type: boolean
+    type: object
+  entity.CreateSessionResponse:
+    properties:
+      id:
+        description: ID созданной сессии
+        type: string
+      status:
+        description: Статус сессии
+        type: string
+      tally:
+        description: Начальное значение счётчика
+        type: integer
+    type: object
+  entity.GetSessionResponse:
+    properties:
+      id:
+        description: ID сессии
+        type: string
+      outcome:
+        description: Итог (если сессия закрыта)
+        type: string
+      status:
+        description: Текущий статус
+        type: string
+      tally:
+        description: Текущее значение счётчика
+        type: integer
+    type: object
+  entity.ListMessagesResponse:
+    properties:
+      items:
+        description: Сообщения в хронологическом порядке
+        items:
+          $ref: '#/definitions/entity.MessageDTO'
+        type: array
+      session_id:
+        description: ID сессии
+        type: string
+    type: object
+  entity.MessageDTO:
+    properties:
+      content:
+        description: Содержимое (для ассистента — JSON-строка)
+        type: string
+      created_at:
+        description: Время создания в формате RFC3339
+        type: string
+      id:
+        description: ID сообщения
+        type: string
+      role:
+        description: Роль автора (user/assistant)
+        type: string
+    type: object
+  entity.PostMessageRequest:
+    properties:
+      text:
+        description: Текст пользователя
+        type: string
+    type: object
+  entity.PostMessageResponse:
+    properties:
+      assistant:
+        allOf:
+        - $ref: '#/definitions/entity.BotPayload'
+        description: Пейлоад ассистента (JSON)
+      done:
+        description: Признак завершения сессии
+        type: boolean
+      outcome:
+        description: Итог («вы прощены»/«вы не прощены»), если Done=true
+        type: string
+      tally:
+        description: Текущее значение счётчика после обработки
+        type: integer
+    type: object
+  entity.Repentance:
+    properties:
+      confidence:
+        description: Уверенность модели (низкая/средняя/высокая и т.п.)
+        type: string
+      score:
+        description: Итоговый балл (0..100), может отсутствовать при RiskFlag
+        type: integer
+      signals:
+        description: Перечень факторов
+        items:
+          $ref: '#/definitions/entity.Signal'
+        type: array
+      trend:
+        description: Тренд изменения (например, improving/declining/stable)
+        type: string
+    type: object
+  entity.Signal:
+    properties:
+      direction:
+        description: Направление влияния (например, up/down/neutral)
+        type: string
+      evidence:
+        description: Краткое обоснование/доказательство
+        type: string
+      factor:
+        description: Название фактора
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /api/sessions:
+    post:
+      consumes:
+      - application/json
+      description: Запускает новую «исповедальную» сессию с начальным значением счётчика
+        (tally) 50.
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/entity.CreateSessionResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Создать новую чат-сессию
+      tags:
+      - sessions
+  /api/sessions/{id}:
+    get:
+      description: Возвращает текущий статус, значение счётчика и финальный результат
+        (если сессия завершена).
+      parameters:
+      - description: ID сессии
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.GetSessionResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Получить состояние сессии
+      tags:
+      - sessions
+  /api/sessions/{id}/messages:
+    get:
+      description: Возвращает хронологическую историю сообщений (первые 200).
+      parameters:
+      - description: ID сессии
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.ListMessagesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Получить сообщения сессии
+      tags:
+      - messages
+    post:
+      consumes:
+      - application/json
+      description: Принимает текст пользователя, отправляет его в LLM, возвращает
+        JSON-ответ ассистента и обновляет счётчик (tally).
+      parameters:
+      - description: ID сессии
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Сообщение пользователя
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/entity.PostMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/entity.PostMessageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Отправить сообщение пользователя в сессию
+      tags:
+      - messages
+swagger: "2.0"
